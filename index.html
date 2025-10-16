@@ -143,10 +143,30 @@
             color: #b88237;
         }
 
+        /* Background effects canvases */
+        .bg-canvas {
+            position: fixed;
+            inset: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 0; /* behind content */
+            pointer-events: none;
+        }
+
+        /* ensure main content sits above backgrounds */
+        .container {
+            position: relative;
+            z-index: 1;
+        }
+
     </style>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 </head>
 <body>
+    <!-- Dynamic background layers: stars/meteors, rain, ripples -->
+    <canvas id="bg-stars" class="bg-canvas"></canvas>
+    <canvas id="bg-rain" class="bg-canvas"></canvas>
+    <canvas id="bg-ripples" class="bg-canvas"></canvas>
     <div class="container">
         <h1>大数据平台分析与实验报告</h1>
         <p class="subtitle">Hadoop WordCount 任务可视化 & 集群搭建报告</p>
@@ -408,6 +428,222 @@
                 observer.observe(card);
             });
         });
+
+        // =========================
+        // Dynamic Background Effects
+        // - Stars + Meteors
+        // - Rain Drops
+        // - Edge Ripples
+        // =========================
+        (function initBackgroundEffects(){
+            const DPR = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+
+            // Utility: setup canvas with DPR scaling
+            function setupCanvas(canvas){
+                const ctx = canvas.getContext('2d');
+                function resize(){
+                    const w = window.innerWidth;
+                    const h = window.innerHeight;
+                    canvas.width = Math.floor(w * DPR);
+                    canvas.height = Math.floor(h * DPR);
+                    canvas.style.width = w + 'px';
+                    canvas.style.height = h + 'px';
+                    ctx.setTransform(1,0,0,1,0,0);
+                    ctx.scale(DPR, DPR);
+                }
+                resize();
+                window.addEventListener('resize', resize);
+                return ctx;
+            }
+
+            // ---- Stars + Meteors ----
+            const starsCanvas = document.getElementById('bg-stars');
+            const starsCtx = setupCanvas(starsCanvas);
+            let stars = [];
+            let meteor = null;
+            function resetStars(){
+                const w = window.innerWidth, h = window.innerHeight;
+                const count = Math.min(220, Math.floor(w * h / 8000));
+                stars = Array.from({length: count}, () => ({
+                    x: Math.random() * w,
+                    y: Math.random() * h,
+                    r: Math.random() * 1.8 + 0.4,
+                    a: 0.6 + Math.random()*0.4,
+                    da: (Math.random()*0.05 + 0.02) * (Math.random()<0.5 ? -1 : 1)
+                }));
+            }
+            resetStars();
+            window.addEventListener('resize', resetStars);
+
+            function spawnMeteor(){
+                const w = window.innerWidth, h = window.innerHeight;
+                const startX = Math.random() * w * 0.4; // left region
+                const startY = Math.random() * h * 0.3; // top region
+                meteor = {
+                    x: startX,
+                    y: startY,
+                    vx: 10 + Math.random()*5,
+                    vy: 6 + Math.random()*4,
+                    life: 0,
+                    maxLife: 70 + Math.floor(Math.random()*50)
+                };
+            }
+            let meteorTimer = 0;
+
+            function drawStars(){
+                const w = window.innerWidth, h = window.innerHeight;
+                starsCtx.clearRect(0,0,w,h);
+                // dark overlay + gradient depth for better contrast
+                starsCtx.fillStyle = 'rgba(10,14,28,0.35)';
+                starsCtx.fillRect(0,0,w,h);
+                const grad = starsCtx.createRadialGradient(w*0.75, h*0.1, 0, w*0.75, h*0.1, Math.max(w,h));
+                grad.addColorStop(0, 'rgba(64,158,255,0.15)');
+                grad.addColorStop(1, 'rgba(0,0,0,0)');
+                starsCtx.fillStyle = grad;
+                starsCtx.fillRect(0,0,w,h);
+
+                // stars twinkle
+                for (const s of stars){
+                    s.a += s.da;
+                    if (s.a <= 0 || s.a >= 1){ s.da *= -1; s.a = Math.max(0, Math.min(1, s.a)); }
+                    starsCtx.globalAlpha = 0.6 + 0.4*s.a;
+                    starsCtx.fillStyle = '#ffffff';
+                    starsCtx.shadowBlur = 6;
+                    starsCtx.shadowColor = 'rgba(255,255,255,0.6)';
+                    starsCtx.beginPath();
+                    starsCtx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+                    starsCtx.fill();
+                }
+                starsCtx.globalAlpha = 1;
+                starsCtx.shadowBlur = 0;
+
+                // meteor
+                meteorTimer--;
+                if (!meteor && meteorTimer <= 0){
+                    if (Math.random() < 0.02) { // ~ occasionally
+                        spawnMeteor();
+                        meteorTimer = 200 + Math.floor(Math.random()*200);
+                    }
+                }
+                if (meteor){
+                    // glowing meteor with tail
+                    const gx = meteor.x - meteor.vx*6;
+                    const gy = meteor.y - meteor.vy*6;
+                    const trail = starsCtx.createLinearGradient(gx, gy, meteor.x, meteor.y);
+                    trail.addColorStop(0, 'rgba(154,209,255,0)');
+                    trail.addColorStop(1, 'rgba(255,255,255,0.95)');
+                    starsCtx.strokeStyle = trail;
+                    starsCtx.lineWidth = 3;
+                    starsCtx.shadowBlur = 12;
+                    starsCtx.shadowColor = '#9ad1ff';
+                    starsCtx.beginPath();
+                    starsCtx.moveTo(meteor.x, meteor.y);
+                    starsCtx.lineTo(gx, gy);
+                    starsCtx.stroke();
+                    starsCtx.shadowBlur = 0;
+                    meteor.x += meteor.vx;
+                    meteor.y += meteor.vy;
+                    meteor.life++;
+                    if (meteor.life > meteor.maxLife || meteor.x > window.innerWidth+50 || meteor.y > window.innerHeight+50){
+                        meteor = null;
+                    }
+                }
+            }
+
+            // ---- Rain ----
+            const rainCanvas = document.getElementById('bg-rain');
+            const rainCtx = setupCanvas(rainCanvas);
+            let drops = [];
+            function resetRain(){
+                const w = window.innerWidth, h = window.innerHeight;
+                const count = Math.min(260, Math.floor(w * h / 9000));
+                drops = Array.from({length: count}, () => ({
+                    x: Math.random() * w,
+                    y: Math.random() * h,
+                    l: 14 + Math.random()*14, // length
+                    s: 3 + Math.random()*4,   // speed
+                    w: 1.1 + Math.random()*1.3  // line width
+                }));
+            }
+            resetRain();
+            window.addEventListener('resize', resetRain);
+
+            function drawRain(){
+                const w = window.innerWidth, h = window.innerHeight;
+                rainCtx.clearRect(0,0,w,h);
+                rainCtx.strokeStyle = 'rgba(150,180,255,0.55)';
+                rainCtx.lineCap = 'round';
+                for (const d of drops){
+                    rainCtx.lineWidth = d.w;
+                    rainCtx.beginPath();
+                    rainCtx.moveTo(d.x, d.y);
+                    rainCtx.lineTo(d.x - 2.5, d.y + d.l);
+                    rainCtx.stroke();
+                    d.x -= 0.9; // slight wind
+                    d.y += d.s + 2.5;
+                    if (d.y > h + 20 || d.x < -20){
+                        d.x = Math.random() * w;
+                        d.y = -20;
+                    }
+                }
+            }
+
+            // ---- Edge Ripples ----
+            const rippleCanvas = document.getElementById('bg-ripples');
+            const rippleCtx = setupCanvas(rippleCanvas);
+            let ripples = [];
+            function spawnRipple(){
+                const w = window.innerWidth, h = window.innerHeight;
+                const side = Math.floor(Math.random()*4); // 0 top, 1 right, 2 bottom, 3 left
+                let x=0, y=0;
+                if (side === 0){ x = Math.random()*w; y = 0; }
+                else if (side === 1){ x = w; y = Math.random()*h; }
+                else if (side === 2){ x = Math.random()*w; y = h; }
+                else { x = 0; y = Math.random()*h; }
+                ripples.push({ x, y, r: 0, vr: 2.0 + Math.random()*1.6, a: 0.6, va: 0.004 + Math.random()*0.005 });
+                if (ripples.length > 12) ripples.shift();
+            }
+            let rippleTimer = 0;
+
+            function drawRipples(){
+                const w = window.innerWidth, h = window.innerHeight;
+                rippleCtx.clearRect(0,0,w,h);
+                rippleTimer--;
+                if (rippleTimer <= 0){
+                    if (Math.random() < 0.5) spawnRipple();
+                    rippleTimer = 30 + Math.floor(Math.random()*30);
+                }
+                for (const rp of ripples){
+                    rippleCtx.strokeStyle = `rgba(110,170,255,${rp.a.toFixed(3)})`;
+                    rippleCtx.lineWidth = 1.6;
+                    rippleCtx.beginPath();
+                    rippleCtx.arc(rp.x, rp.y, rp.r, 0, Math.PI*2);
+                    rippleCtx.stroke();
+                    rp.r += rp.vr;
+                    rp.a -= rp.va;
+                }
+                ripples = ripples.filter(rp => rp.a > 0.01 && rp.r < Math.max(w,h));
+            }
+
+            // Master RAF loop with visibility handling
+            let rafId;
+            function loop(){
+                drawStars();
+                drawRain();
+                drawRipples();
+                rafId = requestAnimationFrame(loop);
+            }
+            function onVis(){
+                if (document.hidden){
+                    if (rafId) cancelAnimationFrame(rafId);
+                    rafId = null;
+                } else if (!rafId){
+                    loop();
+                }
+            }
+            document.addEventListener('visibilitychange', onVis);
+            loop();
+        })();
     </script>
 </body>
 </html>
